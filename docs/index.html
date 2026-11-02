@@ -166,7 +166,7 @@ async function openGemini(env, h) {
   const send = (obj) =&gt; { const s = JSON.stringify(obj); ready ? ws.send(s) : queue.push(s); };
   ws.send(JSON.stringify({ setup: {
     model: &#x27;models/&#x27; + (env.GEMINI_MODEL || &#x27;gemini-2.5-flash-native-audio-preview-12-2025&#x27;),
-    generationConfig: { responseModalities: [&#x27;AUDIO&#x27;], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: &#x27;Kore&#x27; } } } },
+    generationConfig: { responseModalities: [&#x27;AUDIO&#x27;], speechConfig: { languageCode: &#x27;ja-JP&#x27;, voiceConfig: { prebuiltVoiceConfig: { voiceName: &#x27;Kore&#x27; } } } },
     systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
   } }));
   ws.addEventListener(&#x27;message&#x27;, async (e) =&gt; {
@@ -264,6 +264,10 @@ export const SYSTEM_INSTRUCTION = `
 - 最後に内容を復唱して確認し、「ご予約を承りました」と伝えてください。
 - わからないことは推測せず「確認して折り返します」と答えてください。
 電話に出たら最初に「お電話ありがとうございます。AI食堂うみべでございます。」と挨拶してください。
+【言語ルール（最重要）】
+- 必ず日本語だけで話してください。英語は一単語も使わないでください（英語の相槌・挨拶・説明も禁止）。
+- 相手の音声が聞き取りにくい・雑音・無音・意味不明な場合でも、英語で返さず、日本語で「恐れ入ります、もう一度おっしゃっていただけますか？」のように聞き返してください。
+- 相手が英語を話しても、日本語で応対してください。
 `;
 </code></pre></div><div class="panel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
 <div class="ph"><div><p class="fn">public/index.html</p><p class="fd">ブラウザから話しかけるテストページ。</p></div><button class="copy" data-i="2" aria-label="public/index.html をコピー"><span>コピー</span></button></div>

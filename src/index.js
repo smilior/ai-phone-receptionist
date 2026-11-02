@@ -21,7 +21,7 @@ async function openGemini(env, h) {
   const send = (obj) => { const s = JSON.stringify(obj); ready ? ws.send(s) : queue.push(s); };
   ws.send(JSON.stringify({ setup: {
     model: 'models/' + (env.GEMINI_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025'),
-    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
+    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { languageCode: 'ja-JP', voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
     systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
   } }));
   ws.addEventListener('message', async (e) => {
