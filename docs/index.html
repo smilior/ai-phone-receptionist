@@ -1,21 +1,149 @@
 <!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI電話受付 サンプルコード</title><style>
-body{font-family:system-ui,-apple-system,"Hiragino Sans",sans-serif;max-width:860px;margin:0 auto;padding:16px;line-height:1.7;color:#222}
-h1{font-size:1.4em}pre{background:#1e1e1e;color:#eee;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px;max-height:480px}
-.h{display:flex;justify-content:space-between;align-items:center;margin-top:24px}h3{margin:0;font-size:1em;font-family:monospace}
-button{padding:6px 14px;border:0;border-radius:6px;background:#0a7cff;color:#fff;font-size:14px}code.i{background:#eee;padding:1px 4px;border-radius:4px}
+<title>うちの電話、AIに任せています ― AI食堂うみべ｜サンプルコード</title>
+<meta name="description" content="電子書籍『うちの電話、AIに任せています』のサンプルコード。Twilio + Cloudflare Workers + Gemini Live で作るAI電話受付。">
+<meta name="theme-color" content="#0b1a2e">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&family=Shippori+Mincho+B1:wght@600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark-dimmed.min.css">
+<style>
+:root{--navy:#0b1a2e;--navy2:#12263f;--sea:#2f7fb8;--sea2:#7cc3e6;--sand:#efe4d0;--sand2:#d9c3a0;--ink:#13202f;--muted:#5d6b7a;--r:20px}
+*{box-sizing:border-box}html{scroll-behavior:smooth}
+body{margin:0;font-family:"Noto Sans JP",system-ui,sans-serif;color:var(--ink);background:var(--sand);line-height:1.85;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}.wrap{width:min(1180px,100% - 40px);margin-inline:auto}
+.serif{font-family:"Shippori Mincho B1",serif}
+.eyebrow{font:600 12px/1 "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--sea);display:flex;gap:12px;align-items:center}
+.eyebrow::before{content:"";width:28px;height:1px;background:currentColor}
+/* nav */
+.nav{position:fixed;inset:0 0 auto;z-index:20;display:flex;justify-content:space-between;align-items:center;padding:16px 20px;color:var(--sand);mix-blend-mode:normal;transition:background .4s}
+.nav.solid{background:rgba(11,26,46,.85);backdrop-filter:blur(10px)}
+.logo{font-weight:900;letter-spacing:.06em;text-decoration:none;font-size:15px}.logo b{color:var(--sea2)}
+.nav a.gh{font:600 12px "JetBrains Mono",monospace;text-decoration:none;border:1px solid rgba(239,228,208,.35);padding:8px 14px;border-radius:99px}
+/* hero */
+.hero{position:relative;min-height:100svh;background:radial-gradient(120% 80% at 80% 0%,#1d4a74 0%,var(--navy) 55%);color:var(--sand);display:flex;flex-direction:column;justify-content:flex-end;padding:110px 0 0;overflow:hidden}
+.hero .wrap{position:relative;z-index:2}
+.hero h1{font-family:"Shippori Mincho B1",serif;font-weight:800;font-size:clamp(44px,11vw,150px);line-height:1.05;letter-spacing:-.02em;margin:18px 0 26px}
+.hero h1 .ln{display:block;overflow:hidden}.hero h1 .ln>span{display:inline-block;transform:translateY(110%);animation:up 1.1s cubic-bezier(.2,.8,.2,1) forwards}
+.hero h1 .ln:nth-child(2)>span{animation-delay:.15s;color:var(--sea2)}
+@keyframes up{to{transform:none}}
+.hero .lead{max-width:34em;font-size:clamp(15px,2.2vw,18px);color:rgba(239,228,208,.82);margin:0 0 30px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:46px}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:14px 24px;border-radius:99px;font-weight:700;font-size:15px;text-decoration:none;transition:transform .3s,background .3s}
+.btn.p{background:var(--sand);color:var(--navy)}.btn.g{border:1px solid rgba(239,228,208,.4);color:var(--sand)}
+.btn:hover{transform:translateY(-2px)}.btn .ar{transition:transform .3s}.btn:hover .ar{transform:translateX(4px)}
+.wave{position:absolute;left:0;right:0;bottom:0;height:46%;z-index:1;pointer-events:none}
+.wave svg{position:absolute;bottom:0;width:200%;height:100%;animation:drift 18s linear infinite}
+.wave svg:nth-child(2){animation-duration:26s;animation-direction:reverse;opacity:.6}
+@keyframes drift{to{transform:translateX(-50%)}}
+.bars{display:flex;gap:5px;align-items:center;height:40px;margin-bottom:22px}
+.bars i{width:4px;border-radius:4px;background:var(--sea2);height:20%;animation:eq 1.2s ease-in-out infinite}
+@keyframes eq{50%{height:100%}}
+.marquee{position:relative;z-index:2;border-top:1px solid rgba(239,228,208,.15);padding:16px 0;white-space:nowrap;overflow:hidden;font:600 13px "JetBrains Mono",monospace;letter-spacing:.15em;color:rgba(239,228,208,.6)}
+.marquee div{display:inline-block;animation:drift 40s linear infinite}
+/* sections */
+section{padding:clamp(80px,14vw,160px) 0}
+.h2{font-family:"Shippori Mincho B1",serif;font-weight:800;font-size:clamp(32px,6vw,72px);line-height:1.2;margin:16px 0 28px;letter-spacing:-.01em}
+.grid2{display:grid;gap:40px}@media(min-width:860px){.grid2{grid-template-columns:5fr 6fr;gap:80px;align-items:end}}
+.about p.big{font-size:clamp(17px,2.3vw,21px);margin:0}
+.call{background:#fff;border-radius:var(--r);padding:26px;box-shadow:0 30px 60px -30px rgba(11,26,46,.35)}
+.msg{display:flex;gap:12px;margin:14px 0;font-size:15px}.msg .who{flex:none;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700}
+.msg.ai .who{background:var(--navy);color:var(--sea2)}.msg.u .who{background:var(--sand);color:var(--navy)}
+.msg p{margin:0;background:#f5f1e9;padding:10px 14px;border-radius:4px 14px 14px 14px}.msg.ai p{background:#e8f2f9}
+.call .top{display:flex;justify-content:space-between;font:600 12px "JetBrains Mono",monospace;color:var(--muted);border-bottom:1px solid #eee;padding-bottom:12px}
+.live{color:#d0453a}.live::before{content:"● "}
+/* flow */
+.flow-s{background:var(--navy);color:var(--sand)}
+.flow-s .eyebrow{color:var(--sea2)}
+.flow{display:grid;gap:14px;margin-top:40px}@media(min-width:860px){.flow{grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch}}
+.node{border:1px solid rgba(239,228,208,.18);border-radius:var(--r);padding:28px;background:linear-gradient(160deg,rgba(124,195,230,.08),transparent)}
+.node .k{font:600 12px "JetBrains Mono",monospace;color:var(--sea2);letter-spacing:.15em}
+.node h3{font-size:clamp(20px,2.4vw,26px);margin:10px 0 6px}.node p{margin:0;color:rgba(239,228,208,.7);font-size:14px}
+.arrow{display:grid;place-items:center;color:var(--sand2);font-size:13px;font-family:"JetBrains Mono",monospace;padding:4px}
+.arrow svg{width:70px;height:24px}@media(max-width:859px){.arrow svg{transform:rotate(90deg)}}
+.arrow path{stroke-dasharray:6 6;animation:dash 1s linear infinite}@keyframes dash{to{stroke-dashoffset:-12}}
+/* steps */
+.steps{list-style:none;padding:0;margin:40px 0 0;counter-reset:s}
+.steps li{display:grid;grid-template-columns:auto 1fr;gap:20px 28px;padding:30px 0;border-top:1px solid rgba(19,32,47,.15)}
+.steps li:last-child{border-bottom:1px solid rgba(19,32,47,.15)}
+.steps .n{font-family:"Shippori Mincho B1",serif;font-size:clamp(44px,7vw,84px);line-height:.9;color:var(--sea)}
+.steps h3{margin:0 0 6px;font-size:clamp(18px,2.4vw,24px)}.steps p{margin:0;color:var(--muted)}
+code.i{font-family:"JetBrains Mono",monospace;font-size:.88em;background:rgba(47,127,184,.12);color:var(--navy);padding:2px 7px;border-radius:6px;word-break:break-all}
+/* code */
+.code-s{background:var(--navy2);color:var(--sand)}.code-s .eyebrow{color:var(--sea2)}
+.viewer{margin-top:40px;border-radius:var(--r);overflow:hidden;background:#1c2128;border:1px solid rgba(239,228,208,.12);box-shadow:0 40px 80px -40px rgba(0,0,0,.6)}
+.tabs{display:flex;overflow-x:auto;background:#151a20;scrollbar-width:none;border-bottom:1px solid rgba(255,255,255,.06)}
+.tab{flex:none;background:none;border:0;color:rgba(239,228,208,.55);font:500 13px "JetBrains Mono",monospace;padding:16px 20px;cursor:pointer;border-bottom:2px solid transparent}
+.tab .tn{color:var(--sea);margin-right:8px}.tab[aria-selected=true]{color:var(--sand);border-color:var(--sea2);background:#1c2128}
+.ph{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.06)}
+.fn{margin:0;font:600 15px "JetBrains Mono",monospace}.fd{margin:2px 0 0;font-size:13px;color:rgba(239,228,208,.6)}
+.copy{flex:none;background:var(--sand);color:var(--navy);border:0;border-radius:99px;padding:10px 20px;font:700 14px "Noto Sans JP",sans-serif;cursor:pointer;transition:background .3s,transform .2s}
+.copy:hover{transform:translateY(-1px)}.copy.ok{background:var(--sea2)}
+pre{margin:0;max-height:560px;overflow:auto}pre code.hljs,pre code{display:block;padding:20px;font:13px/1.7 "JetBrains Mono",monospace;background:#1c2128;tab-size:2}
+/* links */
+.links{display:grid;gap:16px;margin-top:40px}@media(min-width:760px){.links{grid-template-columns:1fr 1fr}}
+.card{display:block;text-decoration:none;border-radius:var(--r);padding:clamp(28px,4vw,48px);background:var(--navy);color:var(--sand);position:relative;overflow:hidden;transition:transform .4s}
+.card:nth-child(2){background:var(--sea)}.card:hover{transform:translateY(-4px)}
+.card .k{font:600 12px "JetBrains Mono",monospace;letter-spacing:.15em;opacity:.7}.card h3{font-family:"Shippori Mincho B1",serif;font-size:clamp(26px,4vw,44px);margin:10px 0}
+.card p{margin:0;opacity:.8;font-size:14px;word-break:break-all}.card .ar{position:absolute;right:28px;top:28px;font-size:28px;transition:transform .4s}.card:hover .ar{transform:translate(4px,-4px)}
+footer{background:var(--navy);color:rgba(239,228,208,.6);padding:40px 0;font-size:13px}
+footer .big{font-family:"Shippori Mincho B1",serif;color:var(--sand);font-size:clamp(40px,10vw,120px);line-height:1;margin:0 0 24px;opacity:.9}
+/* reveal */
+.rv{opacity:0;transform:translateY(40px);transition:opacity 1s cubic-bezier(.2,.8,.2,1),transform 1s cubic-bezier(.2,.8,.2,1)}.rv.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}.rv{opacity:1;transform:none}.hero h1 .ln>span{transform:none}.bars i{height:60%}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style></head><body>
-<h1>AI電話受付（Twilio + Gemini Live + Cloudflare Workers）</h1>
-<p>電子書籍『うちの電話、AIに任せています』のサンプルコードです。各ファイルの「コピー」ボタンでコードをコピーできます。</p>
-<p><a href="https://github.com/smilior/ai-phone-receptionist">GitHubリポジトリ</a></p>
-<h2>セットアップ手順</h2><ol>
-<li>フォルダを作り、下のファイルを同じ構成で保存（<code class="i">src/</code>・<code class="i">public/</code>）</li>
-<li><code class="i">npm install</code></li><li><code class="i">npx wrangler login</code></li>
-<li><code class="i">npx wrangler secret put GEMINI_API_KEY</code>（Gemini APIキーを入力）</li>
-<li><code class="i">npx wrangler deploy</code></li>
-<li>表示されたURLの末尾に <code class="i">/twiml</code> を付けて、Twilioの電話番号設定「A call comes in」のWebhookに貼り付け</li></ol>
-<h2>コード</h2>
-<section><div class="h"><h3>src/index.js</h3><button onclick="cp(0,this)">コピー</button></div><pre><code id="c0">// Cloudflare Worker版 中継：ブラウザ／電話(Twilio) ⇔ Gemini Live（生のWebSocketプロトコル）
+<header class="nav" id="nav"><a class="logo" href="#top">AI食堂<b>うみべ</b></a><a class="gh" href="https://github.com/smilior/ai-phone-receptionist">GitHub ↗</a></header>
+<main id="top">
+<div class="hero">
+ <div class="wrap">
+  <div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <p class="eyebrow" style="color:var(--sea2)">Sample code — AI Phone Receptionist</p>
+  <h1><span class="ln"><span>うちの電話、</span></span><span class="ln"><span>AIに任せています</span></span></h1>
+  <p class="lead">海辺の小さな食堂「AI食堂うみべ」。今日も電話に出ているのは、人みたいに自然に話すAIです。Twilio・Cloudflare Workers・Gemini Live で作る、AI電話受付のサンプルコード集。</p>
+  <div class="cta"><a class="btn p" href="#code">コードを見る <span class="ar">→</span></a><a class="btn g" href="#setup">はじめかた <span class="ar">↓</span></a></div>
+ </div>
+ <div class="wave" aria-hidden="true">
+  <svg viewBox="0 0 2880 320" preserveAspectRatio="none"><path fill="#2f7fb8" fill-opacity=".35" d="M0 160C240 80 480 80 720 160S1200 240 1440 160 1920 80 2160 160 2640 240 2880 160V320H0Z"/></svg>
+  <svg viewBox="0 0 2880 320" preserveAspectRatio="none"><path fill="#7cc3e6" fill-opacity=".25" d="M0 200C240 140 480 260 720 200S1200 140 1440 200 1920 260 2160 200 2640 140 2880 200V320H0Z"/></svg>
+ </div>
+ <div class="marquee" aria-hidden="true"><div>TWILIO ✦ CLOUDFLARE WORKERS ✦ GEMINI LIVE ✦ 24時間受付 ✦ 予約・営業時間・道案内 ✦ TWILIO ✦ CLOUDFLARE WORKERS ✦ GEMINI LIVE ✦ 24時間受付 ✦ 予約・営業時間・道案内 ✦&nbsp;</div></div>
+</div>
+
+<section class="about"><div class="wrap grid2">
+ <div class="rv"><p class="eyebrow">01 — About</p><h2 class="h2">忙しい厨房の代わりに、<br>AIが電話に出る。</h2>
+ <p class="big">電子書籍『うちの電話、AIに任せています』のサンプルコードです。電話（またはブラウザ）の音声を Cloudflare Workers で中継し、Google の Gemini Live とリアルタイムに会話させます。各ファイルは「コピー」ボタンでそのまま使えます。</p></div>
+ <div class="call rv" aria-label="会話の例"><div class="top"><span>着信 — AI食堂うみべ</span><span class="live">LIVE</span></div>
+  <div class="msg ai"><span class="who">AI</span><p>お電話ありがとうございます。AI食堂うみべです。</p></div>
+  <div class="msg u"><span class="who">客</span><p>今夜7時に2名で予約できますか？</p></div>
+  <div class="msg ai"><span class="who">AI</span><p>はい、7時に2名様ですね。窓際の海が見えるお席をご用意できますよ。</p></div>
+ </div>
+</div></section>
+
+<section class="flow-s"><div class="wrap">
+ <div class="rv"><p class="eyebrow">02 — How it works</p><h2 class="h2">声が、海を越えて<br>AIに届くまで。</h2></div>
+ <div class="flow">
+  <div class="node rv"><span class="k">CLIENT</span><h3>電話 / ブラウザ</h3><p>Twilioの電話番号、またはブラウザのマイクから音声を送ります。</p></div>
+  <div class="arrow" aria-hidden="true"><svg viewBox="0 0 70 24"><path d="M2 12H64M56 4l8 8-8 8" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+  <div class="node rv"><span class="k">RELAY</span><h3>Cloudflare Workers</h3><p>WebSocketで音声を中継し、形式を変換します。</p></div>
+  <div class="arrow" aria-hidden="true"><svg viewBox="0 0 70 24"><path d="M2 12H64M56 4l8 8-8 8" stroke="currentColor" stroke-width="2" fill="none"/></svg></div>
+  <div class="node rv"><span class="k">AI</span><h3>Gemini Live</h3><p>音声を聞き取り、自然な声でリアルタイムに返答します。</p></div>
+ </div>
+</div></section>
+
+<section class="setup" id="setup"><div class="wrap">
+ <div class="rv"><p class="eyebrow">03 — Setup</p><h2 class="h2">4ステップで、開店。</h2></div>
+ <ol class="steps">
+  <li class="rv"><span class="n">01</span><div><h3>ファイルを用意する</h3><p>フォルダを作り、下のファイルを同じ構成で保存（<code class="i">src/</code>・<code class="i">public/</code>）。</p></div></li>
+  <li class="rv"><span class="n">02</span><div><h3>インストールとログイン</h3><p><code class="i">npm install</code> → <code class="i">npx wrangler login</code></p></div></li>
+  <li class="rv"><span class="n">03</span><div><h3>APIキーを登録してデプロイ</h3><p><code class="i">npx wrangler secret put GEMINI_API_KEY</code>（Gemini APIキーを入力）→ <code class="i">npx wrangler deploy</code></p></div></li>
+  <li class="rv"><span class="n">04</span><div><h3>Twilioにつなぐ</h3><p>デプロイ後に表示される <code class="i">https://ai-phone.&lt;あなたのサブドメイン&gt;.workers.dev</code> をブラウザで開くとテストできます。そのURLのURLの末尾に <code class="i">/twiml</code> を付けて、Twilioの電話番号設定「A call comes in」のWebhookに貼り付け。</p></div></li>
+ </ol>
+</div></section>
+
+<section class="code-s" id="code"><div class="wrap">
+ <div class="rv"><p class="eyebrow">04 — Source</p><h2 class="h2">5つのファイル。<br>コピーしてそのまま。</h2></div>
+ <div class="viewer rv"><div class="tabs" role="tablist" aria-label="ファイル"><button role="tab" class="tab" aria-selected="true" aria-controls="p0" id="t0" tabindex="0"><span class="tn">01</span>src/index.js</button><button role="tab" class="tab" aria-selected="false" aria-controls="p1" id="t1" tabindex="-1"><span class="tn">02</span>src/prompt.js</button><button role="tab" class="tab" aria-selected="false" aria-controls="p2" id="t2" tabindex="-1"><span class="tn">03</span>public/index.html</button><button role="tab" class="tab" aria-selected="false" aria-controls="p3" id="t3" tabindex="-1"><span class="tn">04</span>wrangler.jsonc</button><button role="tab" class="tab" aria-selected="false" aria-controls="p4" id="t4" tabindex="-1"><span class="tn">05</span>package.json</button></div><div class="panel" role="tabpanel" id="p0" aria-labelledby="t0">
+<div class="ph"><div><p class="fn">src/index.js</p><p class="fd">中継サーバー本体。電話/ブラウザとGemini Liveを双方向につなぐ。</p></div><button class="copy" data-i="0" aria-label="src/index.js をコピー"><span>コピー</span></button></div>
+<pre><code id="c0" class="language-javascript">// Cloudflare Worker版 中継：ブラウザ／電話(Twilio) ⇔ Gemini Live（生のWebSocketプロトコル）
 import { SYSTEM_INSTRUCTION } from &#x27;./prompt.js&#x27;;
 
 const GEMINI_URL = &#x27;https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent&#x27;;
@@ -104,8 +232,9 @@ export default {
     return env.ASSETS ? env.ASSETS.fetch(req) : new Response(&#x27;not found&#x27;, { status: 404 });
   },
 };
-</code></pre></section>
-<section><div class="h"><h3>src/prompt.js</h3><button onclick="cp(1,this)">コピー</button></div><pre><code id="c1">// 受付AIへの指示（システムインストラクション）
+</code></pre></div><div class="panel" role="tabpanel" id="p1" aria-labelledby="t1" hidden>
+<div class="ph"><div><p class="fn">src/prompt.js</p><p class="fd">受付AIへの指示。お店の情報や話し方をここで決める。</p></div><button class="copy" data-i="1" aria-label="src/prompt.js をコピー"><span>コピー</span></button></div>
+<pre><code id="c1" class="language-javascript">// 受付AIへの指示（システムインストラクション）
 // ※「AI食堂うみべ」は本書のための架空のお店です。
 export const SYSTEM_INSTRUCTION = `
 あなたは架空の飲食店「AI食堂うみべ」の電話受付スタッフです。丁寧で温かい日本語で、短く簡潔に話してください。
@@ -119,8 +248,9 @@ export const SYSTEM_INSTRUCTION = `
 - わからないことは推測せず「確認して折り返します」と答えてください。
 電話に出たら最初に「お電話ありがとうございます。AI食堂うみべでございます。」と挨拶してください。
 `;
-</code></pre></section>
-<section><div class="h"><h3>public/index.html</h3><button onclick="cp(2,this)">コピー</button></div><pre><code id="c2">&lt;!doctype html&gt;
+</code></pre></div><div class="panel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
+<div class="ph"><div><p class="fn">public/index.html</p><p class="fd">ブラウザから話しかけるテストページ。</p></div><button class="copy" data-i="2" aria-label="public/index.html をコピー"><span>コピー</span></button></div>
+<pre><code id="c2" class="language-xml">&lt;!doctype html&gt;
 &lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;&gt;
 &lt;title&gt;AI食堂うみべ AI受付（試作）&lt;/title&gt;
 &lt;style&gt;body{font-family:sans-serif;text-align:center;padding:40px}button{font-size:24px;padding:20px 40px;border-radius:40px}&lt;/style&gt;
@@ -191,8 +321,9 @@ function stop() {
 btn.onclick = () =&gt; (ws ? stop() : start().catch((e) =&gt; { status.textContent = &#x27;エラー: &#x27; + e.message; stop(); }));
 &lt;/script&gt;
 &lt;/body&gt;&lt;/html&gt;
-</code></pre></section>
-<section><div class="h"><h3>wrangler.jsonc</h3><button onclick="cp(3,this)">コピー</button></div><pre><code id="c3">{
+</code></pre></div><div class="panel" role="tabpanel" id="p3" aria-labelledby="t3" hidden>
+<div class="ph"><div><p class="fn">wrangler.jsonc</p><p class="fd">Cloudflare Workersの設定ファイル。</p></div><button class="copy" data-i="3" aria-label="wrangler.jsonc をコピー"><span>コピー</span></button></div>
+<pre><code id="c3" class="language-json">{
   &quot;name&quot;: &quot;ai-phone&quot;,
   &quot;main&quot;: &quot;src/index.js&quot;,
   &quot;compatibility_date&quot;: &quot;2026-10-01&quot;,
@@ -200,10 +331,33 @@ btn.onclick = () =&gt; (ws ? stop() : start().catch((e) =&gt; { status.textConte
   &quot;workers_dev&quot;: true,
   &quot;vars&quot;: { &quot;GEMINI_MODEL&quot;: &quot;gemini-2.5-flash-native-audio-preview-12-2025&quot; }
 }
-</code></pre></section>
-<section><div class="h"><h3>package.json</h3><button onclick="cp(4,this)">コピー</button></div><pre><code id="c4">{&quot;name&quot;:&quot;ai-phone-worker&quot;,&quot;private&quot;:true,&quot;type&quot;:&quot;module&quot;,&quot;scripts&quot;:{&quot;deploy&quot;:&quot;wrangler deploy&quot;,&quot;dev&quot;:&quot;wrangler dev&quot;},&quot;devDependencies&quot;:{&quot;wrangler&quot;:&quot;^4&quot;},&quot;dependencies&quot;:{&quot;ws&quot;:&quot;^8.22.1&quot;}}
-</code></pre></section>
+</code></pre></div><div class="panel" role="tabpanel" id="p4" aria-labelledby="t4" hidden>
+<div class="ph"><div><p class="fn">package.json</p><p class="fd">依存パッケージとスクリプト。</p></div><button class="copy" data-i="4" aria-label="package.json をコピー"><span>コピー</span></button></div>
+<pre><code id="c4" class="language-json">{&quot;name&quot;:&quot;ai-phone-worker&quot;,&quot;private&quot;:true,&quot;type&quot;:&quot;module&quot;,&quot;scripts&quot;:{&quot;deploy&quot;:&quot;wrangler deploy&quot;,&quot;dev&quot;:&quot;wrangler dev&quot;},&quot;devDependencies&quot;:{&quot;wrangler&quot;:&quot;^4&quot;},&quot;dependencies&quot;:{&quot;ws&quot;:&quot;^8.22.1&quot;}}
+</code></pre></div></div>
+ <p class="sr" aria-live="polite" id="status"></p>
+</div></section>
 
-<p style="margin-top:32px;font-size:.9em;color:#666">MIT License © Nakagawa Masahiro</p>
-<script>function cp(i,b){navigator.clipboard.writeText(document.getElementById("c"+i).textContent).then(()=>{b.textContent="コピーしました";setTimeout(()=>b.textContent="コピー",1500)})}</script>
+<section><div class="wrap">
+ <div class="rv"><p class="eyebrow">05 — Links</p><h2 class="h2">さあ、あなたの店にも。</h2></div>
+ <div class="links">
+  <a class="card rv" href="https://github.com/smilior/ai-phone-receptionist"><span class="ar">↗</span><span class="k">REPOSITORY</span><h3>GitHub</h3><p>github.com/smilior/ai-phone-receptionist</p></a>
+  <div class="card rv"><span class="k">YOUR DEMO</span><h3>あなたのテストページ</h3><p>デプロイすると、自分専用のURL <code>https://ai-phone.&lt;あなたのサブドメイン&gt;.workers.dev</code> が発行されます。ブラウザで開けば、マイクでAIと話せます。</p></div>
+ </div>
+</div></section>
+</main>
+<footer><div class="wrap"><p class="big">AI食堂うみべ</p><p>※「AI食堂うみべ」は書籍のための架空のお店です。 · 電子書籍『うちの電話、AIに任せています』サンプルコード</p></div></footer>
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js" onload="document.querySelectorAll('pre code').forEach(function(e){hljs.highlightElement(e)})"></script>
+<script>
+var RAW=[].map.call(document.querySelectorAll('pre code'),function(e){return e.textContent});
+document.querySelectorAll('.copy').forEach(function(b){b.addEventListener('click',function(){var t=RAW[+b.dataset.i],s=b.querySelector('span');
+ function done(){s.textContent='コピーしました';b.classList.add('ok');document.getElementById('status').textContent='コピーしました';setTimeout(function(){s.textContent='コピー';b.classList.remove('ok')},1600)}
+ if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(t).then(done)}else{var a=document.createElement('textarea');a.value=t;document.body.appendChild(a);a.select();document.execCommand('copy');a.remove();done()}})});
+var tabs=[].slice.call(document.querySelectorAll('.tab'));
+function sel(i){tabs.forEach(function(t,j){var on=i===j;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;document.getElementById('p'+j).hidden=!on})}
+tabs.forEach(function(t,i){t.addEventListener('click',function(){sel(i)});t.addEventListener('keydown',function(e){var d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(d){var n=(i+d+tabs.length)%tabs.length;sel(n);tabs[n].focus()}})});
+var io='IntersectionObserver' in window&&new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12});
+document.querySelectorAll('.rv').forEach(function(el){io?io.observe(el):el.classList.add('in')});
+var nav=document.getElementById('nav');addEventListener('scroll',function(){nav.classList.toggle('solid',scrollY>60)},{passive:true});
+</script>
 </body></html>
