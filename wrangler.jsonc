@@ -1,0 +1,8 @@
+{
+  "name": "ai-phone",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./public" },
+  "workers_dev": true,
+  "vars": { "GEMINI_MODEL": "gemini-2.5-flash-native-audio-preview-12-2025" }
+}

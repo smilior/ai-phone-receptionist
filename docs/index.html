@@ -1,0 +1,209 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI電話受付 サンプルコード</title><style>
+body{font-family:system-ui,-apple-system,"Hiragino Sans",sans-serif;max-width:860px;margin:0 auto;padding:16px;line-height:1.7;color:#222}
+h1{font-size:1.4em}pre{background:#1e1e1e;color:#eee;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px;max-height:480px}
+.h{display:flex;justify-content:space-between;align-items:center;margin-top:24px}h3{margin:0;font-size:1em;font-family:monospace}
+button{padding:6px 14px;border:0;border-radius:6px;background:#0a7cff;color:#fff;font-size:14px}code.i{background:#eee;padding:1px 4px;border-radius:4px}
+</style></head><body>
+<h1>AI電話受付（Twilio + Gemini Live + Cloudflare Workers）</h1>
+<p>電子書籍『うちの電話、AIに任せています』のサンプルコードです。各ファイルの「コピー」ボタンでコードをコピーできます。</p>
+<p><a href="https://github.com/smilior/ai-phone-receptionist">GitHubリポジトリ</a></p>
+<h2>セットアップ手順</h2><ol>
+<li>フォルダを作り、下のファイルを同じ構成で保存（<code class="i">src/</code>・<code class="i">public/</code>）</li>
+<li><code class="i">npm install</code></li><li><code class="i">npx wrangler login</code></li>
+<li><code class="i">npx wrangler secret put GEMINI_API_KEY</code>（Gemini APIキーを入力）</li>
+<li><code class="i">npx wrangler deploy</code></li>
+<li>表示されたURLの末尾に <code class="i">/twiml</code> を付けて、Twilioの電話番号設定「A call comes in」のWebhookに貼り付け</li></ol>
+<h2>コード</h2>
+<section><div class="h"><h3>src/index.js</h3><button onclick="cp(0,this)">コピー</button></div><pre><code id="c0">// Cloudflare Worker版 中継：ブラウザ／電話(Twilio) ⇔ Gemini Live（生のWebSocketプロトコル）
+import { SYSTEM_INSTRUCTION } from &#x27;./prompt.js&#x27;;
+
+const GEMINI_URL = &#x27;https://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent&#x27;;
+
+// --- base64 / μ-law 変換（Workersには Buffer が無いので Uint8Array で） ---
+const b64ToBytes = (b64) =&gt; Uint8Array.from(atob(b64), (c) =&gt; c.charCodeAt(0));
+function bytesToB64(u8) { let s = &#x27;&#x27;; for (let i = 0; i &lt; u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); }
+function mulawToPcm(u) { u = ~u &amp; 0xff; const sign = u &amp; 0x80, exp = (u &gt;&gt; 4) &amp; 7, man = u &amp; 0x0f; let s = ((man &lt;&lt; 3) + 0x84) &lt;&lt; exp; s -= 0x84; return sign ? -s : s; }
+function pcmToMulaw(s) { const sign = s &lt; 0 ? 0x80 : 0; if (sign) s = -s; s = Math.min(s, 32635) + 0x84; let exp = 7; for (let m = 0x4000; (s &amp; m) === 0 &amp;&amp; exp &gt; 0; m &gt;&gt;= 1) exp--; const man = (s &gt;&gt; (exp + 3)) &amp; 0x0f; return ~(sign | (exp &lt;&lt; 4) | man) &amp; 0xff; }
+function twilioToGemini(mu) { const out = new DataView(new ArrayBuffer(mu.length * 4)); for (let i = 0; i &lt; mu.length; i++) { const a = mulawToPcm(mu[i]); const b = i + 1 &lt; mu.length ? mulawToPcm(mu[i + 1]) : a; out.setInt16(i * 4, a, true); out.setInt16(i * 4 + 2, (a + b) &gt;&gt; 1, true); } return new Uint8Array(out.buffer); }
+function geminiToTwilio(pcm) { const v = new DataView(pcm.buffer, pcm.byteOffset, pcm.byteLength); const n = Math.floor(pcm.length / 6); const out = new Uint8Array(n); for (let i = 0; i &lt; n; i++) out[i] = pcmToMulaw(Math.round((v.getInt16(i * 6, true) + v.getInt16(i * 6 + 2, true) + v.getInt16(i * 6 + 4, true)) / 3)); return out; }
+
+// --- Gemini Live へ接続（setupComplete までに来た送信はキューにためる） ---
+async function openGemini(env, h) {
+  const res = await fetch(`${GEMINI_URL}?key=${env.GEMINI_API_KEY}`, { headers: { Upgrade: &#x27;websocket&#x27; } });
+  const ws = res.webSocket;
+  if (!ws) throw new Error(&#x27;Gemini接続失敗 status=&#x27; + res.status);
+  ws.accept();
+  let ready = false; const queue = [];
+  const send = (obj) =&gt; { const s = JSON.stringify(obj); ready ? ws.send(s) : queue.push(s); };
+  ws.send(JSON.stringify({ setup: {
+    model: &#x27;models/&#x27; + (env.GEMINI_MODEL || &#x27;gemini-2.5-flash-native-audio-preview-12-2025&#x27;),
+    generationConfig: { responseModalities: [&#x27;AUDIO&#x27;], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: &#x27;Kore&#x27; } } } },
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+  } }));
+  ws.addEventListener(&#x27;message&#x27;, async (e) =&gt; {
+    const text = typeof e.data === &#x27;string&#x27; ? e.data : new TextDecoder().decode(e.data instanceof ArrayBuffer ? e.data : await e.data.arrayBuffer());
+    const msg = JSON.parse(text);
+    if (msg.setupComplete) { ready = true; queue.splice(0).forEach((s) =&gt; ws.send(s)); return; }
+    const sc = msg.serverContent; if (!sc) return;
+    if (sc.interrupted) h.onInterrupted?.();
+    for (const p of sc.modelTurn?.parts ?? []) if (p.inlineData?.data) h.onAudio(p.inlineData.data);
+  });
+  ws.addEventListener(&#x27;close&#x27;, (e) =&gt; { console.log(&#x27;Gemini切断&#x27;, e.code); h.onClose?.(); });
+  ws.addEventListener(&#x27;error&#x27;, () =&gt; h.onClose?.());
+  return {
+    sendAudio: (b64) =&gt; send({ realtimeInput: { audio: { data: b64, mimeType: &#x27;audio/pcm;rate=16000&#x27; } } }),
+    sendText: (text) =&gt; send({ realtimeInput: { text } }),
+    close: () =&gt; { try { ws.close(1000); } catch {} },
+  };
+}
+
+function handleBrowser(env, ws) {
+  const g = openGemini(env, {
+    onAudio: (b64) =&gt; ws.send(b64ToBytes(b64)),
+    onInterrupted: () =&gt; ws.send(JSON.stringify({ type: &#x27;interrupted&#x27; })),
+    onClose: () =&gt; { try { ws.close(1000); } catch {} },
+  });
+  g.catch(() =&gt; ws.close(1011, &#x27;gemini&#x27;));
+  ws.addEventListener(&#x27;message&#x27;, async (e) =&gt; { if (typeof e.data !== &#x27;string&#x27;) (await g).sendAudio(bytesToB64(new Uint8Array(e.data))); });
+  ws.addEventListener(&#x27;close&#x27;, async () =&gt; (await g).close());
+}
+
+function handleTwilio(env, ws) {
+  let streamSid = null;
+  const g = openGemini(env, {
+    onAudio: (b64) =&gt; { if (streamSid) ws.send(JSON.stringify({ event: &#x27;media&#x27;, streamSid, media: { payload: bytesToB64(geminiToTwilio(b64ToBytes(b64))) } })); },
+    onInterrupted: () =&gt; streamSid &amp;&amp; ws.send(JSON.stringify({ event: &#x27;clear&#x27;, streamSid })),
+    onClose: () =&gt; { try { ws.close(1000); } catch {} },
+  });
+  g.catch(() =&gt; ws.close(1011, &#x27;gemini&#x27;));
+  ws.addEventListener(&#x27;message&#x27;, async (e) =&gt; {
+    const msg = JSON.parse(e.data); const gem = await g;
+    if (msg.event === &#x27;start&#x27;) { streamSid = msg.start.streamSid; gem.sendText(&#x27;（電話がつながりました。挨拶してください）&#x27;); }
+    else if (msg.event === &#x27;media&#x27;) gem.sendAudio(bytesToB64(twilioToGemini(b64ToBytes(msg.media.payload))));
+    else if (msg.event === &#x27;stop&#x27;) ws.close(1000);
+  });
+  ws.addEventListener(&#x27;close&#x27;, async () =&gt; (await g).close());
+}
+
+export default {
+  async fetch(req, env) {
+    const url = new URL(req.url);
+    if (url.pathname === &#x27;/twiml&#x27;) {
+      return new Response(`&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;\n&lt;Response&gt;&lt;Connect&gt;&lt;Stream url=&quot;wss://${url.host}/twilio-media&quot; /&gt;&lt;/Connect&gt;&lt;/Response&gt;`, { headers: { &#x27;Content-Type&#x27;: &#x27;text/xml&#x27; } });
+    }
+    const route = { &#x27;/browser&#x27;: handleBrowser, &#x27;/twilio-media&#x27;: handleTwilio, &#x27;/twilio&#x27;: handleTwilio }[url.pathname];
+    if (route) {
+      if (req.headers.get(&#x27;Upgrade&#x27;) !== &#x27;websocket&#x27;) return new Response(&#x27;WebSocket only&#x27;, { status: 426 });
+      const [client, server] = Object.values(new WebSocketPair());
+      server.binaryType = &#x27;arraybuffer&#x27;;
+      server.accept();
+      route(env, server);
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    return env.ASSETS ? env.ASSETS.fetch(req) : new Response(&#x27;not found&#x27;, { status: 404 });
+  },
+};
+</code></pre></section>
+<section><div class="h"><h3>src/prompt.js</h3><button onclick="cp(1,this)">コピー</button></div><pre><code id="c1">// 受付AIへの指示（システムインストラクション）
+// ※「AI食堂うみべ」は本書のための架空のお店です。
+export const SYSTEM_INSTRUCTION = `
+あなたは架空の飲食店「AI食堂うみべ」の電話受付スタッフです。丁寧で温かい日本語で、短く簡潔に話してください。
+【お店の情報（架空）】
+- 営業時間: 昼 11:00〜14:00 / 夜 17:00〜22:00
+- 定休日: 水曜日
+【予約の受け方】
+- お名前・日付・時間・人数 の4点を一つずつ確認してください。
+- 定休日や営業時間外の希望には、丁寧に別の日時を提案してください。
+- 最後に内容を復唱して確認し、「ご予約を承りました」と伝えてください。
+- わからないことは推測せず「確認して折り返します」と答えてください。
+電話に出たら最初に「お電話ありがとうございます。AI食堂うみべでございます。」と挨拶してください。
+`;
+</code></pre></section>
+<section><div class="h"><h3>public/index.html</h3><button onclick="cp(2,this)">コピー</button></div><pre><code id="c2">&lt;!doctype html&gt;
+&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;&gt;
+&lt;title&gt;AI食堂うみべ AI受付（試作）&lt;/title&gt;
+&lt;style&gt;body{font-family:sans-serif;text-align:center;padding:40px}button{font-size:24px;padding:20px 40px;border-radius:40px}&lt;/style&gt;
+&lt;/head&gt;&lt;body&gt;
+&lt;h1&gt;📞 AI食堂うみべ AI受付（試作）&lt;/h1&gt;
+&lt;p&gt;ボタンを押してマイクを許可し、話しかけてください。（イヤホン推奨）&lt;/p&gt;
+&lt;button id=&quot;btn&quot;&gt;🎤 話す&lt;/button&gt;
+&lt;p id=&quot;status&quot;&gt;待機中&lt;/p&gt;
+&lt;script&gt;
+const btn = document.getElementById(&#x27;btn&#x27;), status = document.getElementById(&#x27;status&#x27;);
+let ws, micCtx, playCtx, stream, nextTime = 0, sources = [];
+
+// マイク音声を 16kHz・PCM16 に変換して送る AudioWorklet
+const workletCode = `
+class Mic extends AudioWorkletProcessor {
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (ch) {
+      const pcm = new Int16Array(ch.length);
+      for (let i = 0; i &lt; ch.length; i++) pcm[i] = Math.max(-1, Math.min(1, ch[i])) * 0x7fff;
+      this.port.postMessage(pcm.buffer, [pcm.buffer]);
+    }
+    return true;
+  }
+}
+registerProcessor(&#x27;mic&#x27;, Mic);`;
+
+async function start() {
+  ws = new WebSocket((location.protocol === &#x27;https:&#x27; ? &#x27;wss://&#x27; : &#x27;ws://&#x27;) + location.host + &#x27;/browser&#x27;);
+  ws.binaryType = &#x27;arraybuffer&#x27;;
+  ws.onmessage = (e) =&gt; {
+    if (typeof e.data === &#x27;string&#x27;) {
+      if (JSON.parse(e.data).type === &#x27;interrupted&#x27;) stopPlayback(); // 割り込み：再生を止める
+    } else play(e.data);
+  };
+  ws.onclose = () =&gt; stop();
+  // 再生用（Geminiは24kHz）と録音用（16kHz）
+  playCtx = new AudioContext({ sampleRate: 24000 });
+  micCtx = new AudioContext({ sampleRate: 16000 });
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([workletCode], { type: &#x27;text/javascript&#x27; })));
+  const node = new AudioWorkletNode(micCtx, &#x27;mic&#x27;);
+  node.port.onmessage = (e) =&gt; ws.readyState === 1 &amp;&amp; ws.send(e.data);
+  micCtx.createMediaStreamSource(stream).connect(node);
+  btn.textContent = &#x27;⏹ 終了&#x27;; status.textContent = &#x27;会話中…話しかけてください&#x27;;
+}
+
+// 届いた音声（PCM16 24kHz）を順番に再生する
+function play(buf) {
+  const pcm = new Int16Array(buf), f = new Float32Array(pcm.length);
+  for (let i = 0; i &lt; pcm.length; i++) f[i] = pcm[i] / 0x8000;
+  const ab = playCtx.createBuffer(1, f.length, 24000);
+  ab.copyToChannel(f, 0);
+  const src = playCtx.createBufferSource();
+  src.buffer = ab; src.connect(playCtx.destination);
+  nextTime = Math.max(nextTime, playCtx.currentTime);
+  src.start(nextTime); nextTime += ab.duration;
+  sources.push(src); src.onended = () =&gt; (sources = sources.filter((s) =&gt; s !== src));
+}
+function stopPlayback() { sources.forEach((s) =&gt; s.stop()); sources = []; nextTime = 0; }
+
+function stop() {
+  stopPlayback();
+  stream?.getTracks().forEach((t) =&gt; t.stop());
+  micCtx?.close(); playCtx?.close(); if (ws?.readyState === 1) ws.close();
+  ws = null; btn.textContent = &#x27;🎤 話す&#x27;; status.textContent = &#x27;終了しました&#x27;;
+}
+btn.onclick = () =&gt; (ws ? stop() : start().catch((e) =&gt; { status.textContent = &#x27;エラー: &#x27; + e.message; stop(); }));
+&lt;/script&gt;
+&lt;/body&gt;&lt;/html&gt;
+</code></pre></section>
+<section><div class="h"><h3>wrangler.jsonc</h3><button onclick="cp(3,this)">コピー</button></div><pre><code id="c3">{
+  &quot;name&quot;: &quot;ai-phone&quot;,
+  &quot;main&quot;: &quot;src/index.js&quot;,
+  &quot;compatibility_date&quot;: &quot;2026-10-01&quot;,
+  &quot;assets&quot;: { &quot;directory&quot;: &quot;./public&quot; },
+  &quot;workers_dev&quot;: true,
+  &quot;vars&quot;: { &quot;GEMINI_MODEL&quot;: &quot;gemini-2.5-flash-native-audio-preview-12-2025&quot; }
+}
+</code></pre></section>
+<section><div class="h"><h3>package.json</h3><button onclick="cp(4,this)">コピー</button></div><pre><code id="c4">{&quot;name&quot;:&quot;ai-phone-worker&quot;,&quot;private&quot;:true,&quot;type&quot;:&quot;module&quot;,&quot;scripts&quot;:{&quot;deploy&quot;:&quot;wrangler deploy&quot;,&quot;dev&quot;:&quot;wrangler dev&quot;},&quot;devDependencies&quot;:{&quot;wrangler&quot;:&quot;^4&quot;},&quot;dependencies&quot;:{&quot;ws&quot;:&quot;^8.22.1&quot;}}
+</code></pre></section>
+
+<p style="margin-top:32px;font-size:.9em;color:#666">MIT License © Nakagawa Masahiro</p>
+<script>function cp(i,b){navigator.clipboard.writeText(document.getElementById("c"+i).textContent).then(()=>{b.textContent="コピーしました";setTimeout(()=>b.textContent="コピー",1500)})}</script>
+</body></html>
