@@ -1,15 +1,88 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI食堂うみべ AI受付（試作）</title>
-<style>body{font-family:sans-serif;text-align:center;padding:40px}button{font-size:24px;padding:20px 40px;border-radius:40px}</style>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AI食堂うみべ AI受付 ― 通話テスト</title>
+<meta name="theme-color" content="#0b1a2e">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Shippori+Mincho+B1:wght@600;800&family=JetBrains+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0b1a2e;--navy2:#12263f;--sea:#2f7fb8;--sea2:#7cc3e6;--sand:#efe4d0;--sand2:#d9c3a0;--red:#d0453a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100svh;font-family:"Noto Sans JP",system-ui,sans-serif;color:var(--sand);background:radial-gradient(120% 80% at 80% 0%,#1d4a74 0%,var(--navy) 60%);line-height:1.8;-webkit-font-smoothing:antialiased;overflow-x:hidden;display:flex;flex-direction:column}
+.serif{font-family:"Shippori Mincho B1",serif}
+main{position:relative;z-index:2;flex:1;width:min(560px,100% - 40px);margin-inline:auto;padding:48px 0 40px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.eyebrow{font:600 11px/1 "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--sea2);display:flex;gap:10px;align-items:center}
+.eyebrow::before,.eyebrow::after{content:"";width:22px;height:1px;background:currentColor}
+h1{font-family:"Shippori Mincho B1",serif;font-weight:800;font-size:clamp(34px,9vw,56px);line-height:1.15;margin:14px 0 6px;letter-spacing:-.01em}
+h1 span{color:var(--sea2)}
+.sub{margin:0 0 30px;color:rgba(239,228,208,.75);font-size:14px}
+.stage{position:relative;width:min(260px,70vw);aspect-ratio:1;display:grid;place-items:center;margin:4px 0 22px}
+.ring{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(124,195,230,.35);transform:scale(var(--lv,1));transition:transform .08s linear}
+.ring.r2{inset:-14px;opacity:.5;transform:scale(calc(1 + (var(--lv,1) - 1) * .6))}
+body:not(.on) .ring{animation:breathe 3.2s ease-in-out infinite}body:not(.on) .ring.r2{animation-delay:.8s}
+@keyframes breathe{50%{transform:scale(1.06);opacity:.25}}
+#btn{position:relative;width:78%;aspect-ratio:1;border-radius:50%;border:0;cursor:pointer;background:var(--sand);color:var(--navy);font:700 clamp(18px,5vw,22px)/1.3 "Noto Sans JP",sans-serif;box-shadow:0 30px 60px -20px rgba(0,0,0,.6),inset 0 -6px 0 rgba(0,0,0,.08);transition:transform .2s,background .3s,color .3s;-webkit-tap-highlight-color:transparent}
+#btn:hover{transform:translateY(-2px)}#btn:active{transform:scale(.97)}
+#btn:focus-visible{outline:3px solid var(--sea2);outline-offset:6px}
+body.on #btn{background:var(--red);color:#fff}
+#status{min-height:1.8em;margin:0 0 10px;font-weight:500}
+.viz{display:flex;gap:5px;align-items:center;justify-content:center;height:56px;width:100%;margin-bottom:28px}
+.viz i{width:5px;border-radius:5px;background:var(--sea2);height:12%;transition:height .08s linear}
+body:not(.on) .viz i{opacity:.45;animation:eq 1.4s ease-in-out infinite}
+@keyframes eq{50%{height:45%}}
+.how{width:100%;text-align:left;background:rgba(239,228,208,.06);border:1px solid rgba(239,228,208,.15);border-radius:20px;padding:22px 24px}
+.how h2{font-family:"Shippori Mincho B1",serif;font-size:20px;margin:0 0 10px}
+.how ol{margin:0;padding-left:1.3em;font-size:14px;color:rgba(239,228,208,.85)}.how li{margin:4px 0}
+.how p{margin:12px 0 0;font-size:12px;color:rgba(239,228,208,.6)}
+.notice{display:none;margin:0 0 22px;padding:12px 18px;border-radius:14px;background:var(--sand);color:var(--navy);font-size:14px}.notice.show{display:block}
+.wave{position:fixed;left:0;right:0;bottom:0;height:28vh;z-index:1;pointer-events:none}
+.wave svg{position:absolute;bottom:0;width:200%;height:100%;animation:drift 18s linear infinite}
+.wave svg:nth-child(2){animation-duration:26s;animation-direction:reverse;opacity:.6}
+@keyframes drift{to{transform:translateX(-50%)}}
+footer{position:relative;z-index:2;text-align:center;font-size:12px;color:rgba(239,228,208,.6);padding:0 20px 24px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
 </head><body>
-<h1>📞 AI食堂うみべ AI受付（試作）</h1>
-<p>ボタンを押してマイクを許可し、話しかけてください。（イヤホン推奨）</p>
-<button id="btn">🎤 話す</button>
-<p id="status">待機中</p>
+<div class="wave" aria-hidden="true">
+ <svg viewBox="0 0 2880 320" preserveAspectRatio="none"><path fill="#2f7fb8" fill-opacity=".35" d="M0 160C240 80 480 80 720 160S1200 240 1440 160 1920 80 2160 160 2640 240 2880 160V320H0Z"/></svg>
+ <svg viewBox="0 0 2880 320" preserveAspectRatio="none"><path fill="#7cc3e6" fill-opacity=".25" d="M0 200C240 140 480 260 720 200S1200 140 1440 200 1920 260 2160 200 2640 140 2880 200V320H0Z"/></svg>
+</div>
+<main>
+ <p class="eyebrow">Live Voice Test</p>
+ <h1>AI食堂<span>うみべ</span></h1>
+ <p class="sub">AI電話受付 ― 通話テスト（イヤホン推奨・1回5分まで）</p>
+ <p class="notice" id="notice" role="alert"></p>
+ <div class="stage"><span class="ring r2" aria-hidden="true"></span><span class="ring" aria-hidden="true"></span><button id="btn">🎤 話す</button></div>
+ <p id="status" aria-live="polite">待機中</p>
+ <div class="viz" id="viz" aria-hidden="true"></div>
+ <section class="how">
+  <h2>試し方</h2>
+  <ol>
+   <li>真ん中のボタンを押します。</li>
+   <li>マイクの使用を「許可」します。</li>
+   <li>「明日の夜7時に2名で予約したいです」と話しかけてみましょう。</li>
+   <li>AIが話している途中で割り込んでみてください。すぐに話をやめて聞いてくれます。</li>
+  </ol>
+  <p>※「AI食堂うみべ」は書籍のための架空のお店です。予約は実際には入りません。</p>
+ </section>
+</main>
+<footer>電子書籍『うちの電話、AIに任せています』サンプル</footer>
 <script>
 const btn = document.getElementById('btn'), status = document.getElementById('status');
 let ws, micCtx, playCtx, stream, nextTime = 0, sources = [];
+
+// 音量メーター（マイクとAIの声の大きさを表示）
+const viz = document.getElementById('viz'), notice = document.getElementById('notice'), bars = [];
+for (let i = 0; i < 24; i++) bars.push(viz.appendChild(document.createElement('i')));
+bars.forEach((b, i) => (b.style.animationDelay = (i % 8) * 0.1 + 's'));
+let inAn, outAn, timedOut = false;
+function meter() {
+  if (!ws) { bars.forEach((b) => (b.style.height = '')); document.body.style.removeProperty('--lv'); return; }
+  const d = new Uint8Array(32), lv = new Array(bars.length).fill(0);
+  [inAn, outAn].forEach((an) => { if (!an) return; an.getByteFrequencyData(d); for (let i = 0; i < bars.length; i++) lv[i] = Math.max(lv[i], d[i % 16] / 255); });
+  bars.forEach((b, i) => (b.style.height = Math.max(8, lv[i] * 100) + '%'));
+  document.querySelector('.stage').style.setProperty('--lv', 1 + Math.max(...lv) * 0.12);
+  requestAnimationFrame(meter);
+}
 
 // マイク音声を 16kHz・PCM16 に変換して送る AudioWorklet
 const workletCode = `
@@ -27,11 +100,14 @@ class Mic extends AudioWorkletProcessor {
 registerProcessor('mic', Mic);`;
 
 async function start() {
+  timedOut = false; notice.classList.remove('show');
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/browser');
   ws.binaryType = 'arraybuffer';
   ws.onmessage = (e) => {
     if (typeof e.data === 'string') {
-      if (JSON.parse(e.data).type === 'interrupted') stopPlayback(); // 割り込み：再生を止める
+      const m = JSON.parse(e.data);
+      if (m.type === 'interrupted') stopPlayback(); // 割り込み：再生を止める
+      if (m.type === 'timeout') timedOut = true;    // 5分の上限に達した
     } else play(e.data);
   };
   ws.onclose = () => stop();
@@ -43,7 +119,10 @@ async function start() {
   const node = new AudioWorkletNode(micCtx, 'mic');
   node.port.onmessage = (e) => ws.readyState === 1 && ws.send(e.data);
   micCtx.createMediaStreamSource(stream).connect(node);
+  inAn = micCtx.createAnalyser(); inAn.fftSize = 64; micCtx.createMediaStreamSource(stream).connect(inAn);
+  outAn = playCtx.createAnalyser(); outAn.fftSize = 64;
   btn.textContent = '⏹ 終了'; status.textContent = '会話中…話しかけてください';
+  document.body.classList.add('on'); meter();
 }
 
 // 届いた音声（PCM16 24kHz）を順番に再生する
@@ -54,6 +133,7 @@ function play(buf) {
   ab.copyToChannel(f, 0);
   const src = playCtx.createBufferSource();
   src.buffer = ab; src.connect(playCtx.destination);
+  if (outAn) src.connect(outAn);
   nextTime = Math.max(nextTime, playCtx.currentTime);
   src.start(nextTime); nextTime += ab.duration;
   sources.push(src); src.onended = () => (sources = sources.filter((s) => s !== src));
@@ -65,6 +145,8 @@ function stop() {
   stream?.getTracks().forEach((t) => t.stop());
   micCtx?.close(); playCtx?.close(); if (ws?.readyState === 1) ws.close();
   ws = null; btn.textContent = '🎤 話す'; status.textContent = '終了しました';
+  inAn = outAn = null; document.body.classList.remove('on');
+  if (timedOut) { notice.textContent = '5分たったので通話を終了しました。お試しありがとうございました！もう一度ボタンを押すと、また話せます。'; notice.classList.add('show'); }
 }
 btn.onclick = () => (ws ? stop() : start().catch((e) => { status.textContent = 'エラー: ' + e.message; stop(); }));
 </script>

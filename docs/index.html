@@ -134,8 +134,8 @@ footer .big{font-family:"Shippori Mincho B1",serif;color:var(--sand);font-size:c
  <ol class="steps">
   <li class="rv"><span class="n">01</span><div><h3>ファイルを用意する</h3><p>フォルダを作り、下のファイルを同じ構成で保存（<code class="i">src/</code>・<code class="i">public/</code>）。</p></div></li>
   <li class="rv"><span class="n">02</span><div><h3>インストールとログイン</h3><p><code class="i">npm install</code> → <code class="i">npx wrangler login</code></p></div></li>
-  <li class="rv"><span class="n">03</span><div><h3>APIキーを登録してデプロイ</h3><p><code class="i">npx wrangler secret put GEMINI_API_KEY</code>（Gemini APIキーを入力）→ <code class="i">npx wrangler deploy</code></p></div></li>
-  <li class="rv"><span class="n">04</span><div><h3>Twilioにつなぐ</h3><p>デプロイ後に表示される <code class="i">https://ai-phone.&lt;あなたのサブドメイン&gt;.workers.dev</code> をブラウザで開くとテストできます。そのURLのURLの末尾に <code class="i">/twiml</code> を付けて、Twilioの電話番号設定「A call comes in」のWebhookに貼り付け。</p></div></li>
+  <li class="rv"><span class="n">03</span><div><h3>APIキーとパスワードを登録してデプロイ</h3><p><code class="i">npx wrangler secret put GEMINI_API_KEY</code>（Gemini APIキーを入力）→ <code class="i">npx wrangler secret put BASIC_USER</code> / <code class="i">npx wrangler secret put BASIC_PASS</code>（テストページのBasic認証のIDとパスワード）→ <code class="i">npx wrangler deploy</code></p></div></li>
+  <li class="rv"><span class="n">04</span><div><h3>Twilioにつなぐ</h3><p>デプロイ後に表示される <code class="i">https://ai-phone.&lt;あなたのサブドメイン&gt;.workers.dev</code> をブラウザで開き、Basic認証のIDとパスワードを入れるとテストできます（1回5分まで）。そのURLの末尾に <code class="i">/twiml</code> を付けて、Twilioの電話番号設定「A call comes in」のWebhookに貼り付け。</p></div></li>
  </ol>
 </div></section>
 
@@ -186,7 +186,12 @@ async function openGemini(env, h) {
   };
 }
 
+const SESSION_LIMIT_MS = 5 * 60 * 1000; // コスト対策：ブラウザ通話は1回5分まで
+
 function handleBrowser(env, ws) {
+  const timer = setTimeout(() =&gt; {
+    try { ws.send(JSON.stringify({ type: &#x27;timeout&#x27; })); ws.close(1000, &#x27;time limit&#x27;); } catch {}
+  }, SESSION_LIMIT_MS);
   const g = openGemini(env, {
     onAudio: (b64) =&gt; ws.send(b64ToBytes(b64)),
     onInterrupted: () =&gt; ws.send(JSON.stringify({ type: &#x27;interrupted&#x27; })),
@@ -194,7 +199,7 @@ function handleBrowser(env, ws) {
   });
   g.catch(() =&gt; ws.close(1011, &#x27;gemini&#x27;));
   ws.addEventListener(&#x27;message&#x27;, async (e) =&gt; { if (typeof e.data !== &#x27;string&#x27;) (await g).sendAudio(bytesToB64(new Uint8Array(e.data))); });
-  ws.addEventListener(&#x27;close&#x27;, async () =&gt; (await g).close());
+  ws.addEventListener(&#x27;close&#x27;, async () =&gt; { clearTimeout(timer); (await g).close(); });
 }
 
 function handleTwilio(env, ws) {
@@ -214,9 +219,21 @@ function handleTwilio(env, ws) {
   ws.addEventListener(&#x27;close&#x27;, async () =&gt; (await g).close());
 }
 
+// --- Basic認証（/twiml と /twilio-media はTwilioが叩くので対象外） ---
+const PUBLIC_PATHS = [&#x27;/twiml&#x27;, &#x27;/twilio-media&#x27;, &#x27;/twilio&#x27;];
+function authorized(req, env) {
+  if (!env.BASIC_USER || !env.BASIC_PASS) return true; // 未設定なら認証なし
+  const [scheme, b64] = (req.headers.get(&#x27;Authorization&#x27;) || &#x27;&#x27;).split(&#x27; &#x27;);
+  if (scheme !== &#x27;Basic&#x27; || !b64) return false;
+  try { return atob(b64) === `${env.BASIC_USER}:${env.BASIC_PASS}`; } catch { return false; }
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (!PUBLIC_PATHS.includes(url.pathname) &amp;&amp; !authorized(req, env)) {
+      return new Response(&#x27;認証が必要です&#x27;, { status: 401, headers: { &#x27;WWW-Authenticate&#x27;: &#x27;Basic realm=&quot;umibe&quot;, charset=&quot;UTF-8&quot;&#x27;, &#x27;Content-Type&#x27;: &#x27;text/plain; charset=utf-8&#x27; } });
+    }
     if (url.pathname === &#x27;/twiml&#x27;) {
       return new Response(`&lt;?xml version=&quot;1.0&quot; encoding=&quot;UTF-8&quot;?&gt;\n&lt;Response&gt;&lt;Connect&gt;&lt;Stream url=&quot;wss://${url.host}/twilio-media&quot; /&gt;&lt;/Connect&gt;&lt;/Response&gt;`, { headers: { &#x27;Content-Type&#x27;: &#x27;text/xml&#x27; } });
     }
@@ -251,17 +268,90 @@ export const SYSTEM_INSTRUCTION = `
 </code></pre></div><div class="panel" role="tabpanel" id="p2" aria-labelledby="t2" hidden>
 <div class="ph"><div><p class="fn">public/index.html</p><p class="fd">ブラウザから話しかけるテストページ。</p></div><button class="copy" data-i="2" aria-label="public/index.html をコピー"><span>コピー</span></button></div>
 <pre><code id="c2" class="language-xml">&lt;!doctype html&gt;
-&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1&quot;&gt;
-&lt;title&gt;AI食堂うみべ AI受付（試作）&lt;/title&gt;
-&lt;style&gt;body{font-family:sans-serif;text-align:center;padding:40px}button{font-size:24px;padding:20px 40px;border-radius:40px}&lt;/style&gt;
+&lt;html lang=&quot;ja&quot;&gt;&lt;head&gt;&lt;meta charset=&quot;utf-8&quot;&gt;&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width,initial-scale=1,viewport-fit=cover&quot;&gt;
+&lt;title&gt;AI食堂うみべ AI受付 ― 通話テスト&lt;/title&gt;
+&lt;meta name=&quot;theme-color&quot; content=&quot;#0b1a2e&quot;&gt;
+&lt;link rel=&quot;preconnect&quot; href=&quot;https://fonts.googleapis.com&quot;&gt;&lt;link rel=&quot;preconnect&quot; href=&quot;https://fonts.gstatic.com&quot; crossorigin&gt;
+&lt;link href=&quot;https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;family=Shippori+Mincho+B1:wght@600;800&amp;family=JetBrains+Mono:wght@600&amp;display=swap&quot; rel=&quot;stylesheet&quot;&gt;
+&lt;style&gt;
+:root{--navy:#0b1a2e;--navy2:#12263f;--sea:#2f7fb8;--sea2:#7cc3e6;--sand:#efe4d0;--sand2:#d9c3a0;--red:#d0453a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100svh;font-family:&quot;Noto Sans JP&quot;,system-ui,sans-serif;color:var(--sand);background:radial-gradient(120% 80% at 80% 0%,#1d4a74 0%,var(--navy) 60%);line-height:1.8;-webkit-font-smoothing:antialiased;overflow-x:hidden;display:flex;flex-direction:column}
+.serif{font-family:&quot;Shippori Mincho B1&quot;,serif}
+main{position:relative;z-index:2;flex:1;width:min(560px,100% - 40px);margin-inline:auto;padding:48px 0 40px;display:flex;flex-direction:column;align-items:center;text-align:center}
+.eyebrow{font:600 11px/1 &quot;JetBrains Mono&quot;,monospace;letter-spacing:.2em;text-transform:uppercase;color:var(--sea2);display:flex;gap:10px;align-items:center}
+.eyebrow::before,.eyebrow::after{content:&quot;&quot;;width:22px;height:1px;background:currentColor}
+h1{font-family:&quot;Shippori Mincho B1&quot;,serif;font-weight:800;font-size:clamp(34px,9vw,56px);line-height:1.15;margin:14px 0 6px;letter-spacing:-.01em}
+h1 span{color:var(--sea2)}
+.sub{margin:0 0 30px;color:rgba(239,228,208,.75);font-size:14px}
+.stage{position:relative;width:min(260px,70vw);aspect-ratio:1;display:grid;place-items:center;margin:4px 0 22px}
+.ring{position:absolute;inset:0;border-radius:50%;border:1px solid rgba(124,195,230,.35);transform:scale(var(--lv,1));transition:transform .08s linear}
+.ring.r2{inset:-14px;opacity:.5;transform:scale(calc(1 + (var(--lv,1) - 1) * .6))}
+body:not(.on) .ring{animation:breathe 3.2s ease-in-out infinite}body:not(.on) .ring.r2{animation-delay:.8s}
+@keyframes breathe{50%{transform:scale(1.06);opacity:.25}}
+#btn{position:relative;width:78%;aspect-ratio:1;border-radius:50%;border:0;cursor:pointer;background:var(--sand);color:var(--navy);font:700 clamp(18px,5vw,22px)/1.3 &quot;Noto Sans JP&quot;,sans-serif;box-shadow:0 30px 60px -20px rgba(0,0,0,.6),inset 0 -6px 0 rgba(0,0,0,.08);transition:transform .2s,background .3s,color .3s;-webkit-tap-highlight-color:transparent}
+#btn:hover{transform:translateY(-2px)}#btn:active{transform:scale(.97)}
+#btn:focus-visible{outline:3px solid var(--sea2);outline-offset:6px}
+body.on #btn{background:var(--red);color:#fff}
+#status{min-height:1.8em;margin:0 0 10px;font-weight:500}
+.viz{display:flex;gap:5px;align-items:center;justify-content:center;height:56px;width:100%;margin-bottom:28px}
+.viz i{width:5px;border-radius:5px;background:var(--sea2);height:12%;transition:height .08s linear}
+body:not(.on) .viz i{opacity:.45;animation:eq 1.4s ease-in-out infinite}
+@keyframes eq{50%{height:45%}}
+.how{width:100%;text-align:left;background:rgba(239,228,208,.06);border:1px solid rgba(239,228,208,.15);border-radius:20px;padding:22px 24px}
+.how h2{font-family:&quot;Shippori Mincho B1&quot;,serif;font-size:20px;margin:0 0 10px}
+.how ol{margin:0;padding-left:1.3em;font-size:14px;color:rgba(239,228,208,.85)}.how li{margin:4px 0}
+.how p{margin:12px 0 0;font-size:12px;color:rgba(239,228,208,.6)}
+.notice{display:none;margin:0 0 22px;padding:12px 18px;border-radius:14px;background:var(--sand);color:var(--navy);font-size:14px}.notice.show{display:block}
+.wave{position:fixed;left:0;right:0;bottom:0;height:28vh;z-index:1;pointer-events:none}
+.wave svg{position:absolute;bottom:0;width:200%;height:100%;animation:drift 18s linear infinite}
+.wave svg:nth-child(2){animation-duration:26s;animation-direction:reverse;opacity:.6}
+@keyframes drift{to{transform:translateX(-50%)}}
+footer{position:relative;z-index:2;text-align:center;font-size:12px;color:rgba(239,228,208,.6);padding:0 20px 24px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+&lt;/style&gt;
 &lt;/head&gt;&lt;body&gt;
-&lt;h1&gt;📞 AI食堂うみべ AI受付（試作）&lt;/h1&gt;
-&lt;p&gt;ボタンを押してマイクを許可し、話しかけてください。（イヤホン推奨）&lt;/p&gt;
-&lt;button id=&quot;btn&quot;&gt;🎤 話す&lt;/button&gt;
-&lt;p id=&quot;status&quot;&gt;待機中&lt;/p&gt;
+&lt;div class=&quot;wave&quot; aria-hidden=&quot;true&quot;&gt;
+ &lt;svg viewBox=&quot;0 0 2880 320&quot; preserveAspectRatio=&quot;none&quot;&gt;&lt;path fill=&quot;#2f7fb8&quot; fill-opacity=&quot;.35&quot; d=&quot;M0 160C240 80 480 80 720 160S1200 240 1440 160 1920 80 2160 160 2640 240 2880 160V320H0Z&quot;/&gt;&lt;/svg&gt;
+ &lt;svg viewBox=&quot;0 0 2880 320&quot; preserveAspectRatio=&quot;none&quot;&gt;&lt;path fill=&quot;#7cc3e6&quot; fill-opacity=&quot;.25&quot; d=&quot;M0 200C240 140 480 260 720 200S1200 140 1440 200 1920 260 2160 200 2640 140 2880 200V320H0Z&quot;/&gt;&lt;/svg&gt;
+&lt;/div&gt;
+&lt;main&gt;
+ &lt;p class=&quot;eyebrow&quot;&gt;Live Voice Test&lt;/p&gt;
+ &lt;h1&gt;AI食堂&lt;span&gt;うみべ&lt;/span&gt;&lt;/h1&gt;
+ &lt;p class=&quot;sub&quot;&gt;AI電話受付 ― 通話テスト（イヤホン推奨・1回5分まで）&lt;/p&gt;
+ &lt;p class=&quot;notice&quot; id=&quot;notice&quot; role=&quot;alert&quot;&gt;&lt;/p&gt;
+ &lt;div class=&quot;stage&quot;&gt;&lt;span class=&quot;ring r2&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;&lt;span class=&quot;ring&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;&lt;button id=&quot;btn&quot;&gt;🎤 話す&lt;/button&gt;&lt;/div&gt;
+ &lt;p id=&quot;status&quot; aria-live=&quot;polite&quot;&gt;待機中&lt;/p&gt;
+ &lt;div class=&quot;viz&quot; id=&quot;viz&quot; aria-hidden=&quot;true&quot;&gt;&lt;/div&gt;
+ &lt;section class=&quot;how&quot;&gt;
+  &lt;h2&gt;試し方&lt;/h2&gt;
+  &lt;ol&gt;
+   &lt;li&gt;真ん中のボタンを押します。&lt;/li&gt;
+   &lt;li&gt;マイクの使用を「許可」します。&lt;/li&gt;
+   &lt;li&gt;「明日の夜7時に2名で予約したいです」と話しかけてみましょう。&lt;/li&gt;
+   &lt;li&gt;AIが話している途中で割り込んでみてください。すぐに話をやめて聞いてくれます。&lt;/li&gt;
+  &lt;/ol&gt;
+  &lt;p&gt;※「AI食堂うみべ」は書籍のための架空のお店です。予約は実際には入りません。&lt;/p&gt;
+ &lt;/section&gt;
+&lt;/main&gt;
+&lt;footer&gt;電子書籍『うちの電話、AIに任せています』サンプル&lt;/footer&gt;
 &lt;script&gt;
 const btn = document.getElementById(&#x27;btn&#x27;), status = document.getElementById(&#x27;status&#x27;);
 let ws, micCtx, playCtx, stream, nextTime = 0, sources = [];
+
+// 音量メーター（マイクとAIの声の大きさを表示）
+const viz = document.getElementById(&#x27;viz&#x27;), notice = document.getElementById(&#x27;notice&#x27;), bars = [];
+for (let i = 0; i &lt; 24; i++) bars.push(viz.appendChild(document.createElement(&#x27;i&#x27;)));
+bars.forEach((b, i) =&gt; (b.style.animationDelay = (i % 8) * 0.1 + &#x27;s&#x27;));
+let inAn, outAn, timedOut = false;
+function meter() {
+  if (!ws) { bars.forEach((b) =&gt; (b.style.height = &#x27;&#x27;)); document.body.style.removeProperty(&#x27;--lv&#x27;); return; }
+  const d = new Uint8Array(32), lv = new Array(bars.length).fill(0);
+  [inAn, outAn].forEach((an) =&gt; { if (!an) return; an.getByteFrequencyData(d); for (let i = 0; i &lt; bars.length; i++) lv[i] = Math.max(lv[i], d[i % 16] / 255); });
+  bars.forEach((b, i) =&gt; (b.style.height = Math.max(8, lv[i] * 100) + &#x27;%&#x27;));
+  document.querySelector(&#x27;.stage&#x27;).style.setProperty(&#x27;--lv&#x27;, 1 + Math.max(...lv) * 0.12);
+  requestAnimationFrame(meter);
+}
 
 // マイク音声を 16kHz・PCM16 に変換して送る AudioWorklet
 const workletCode = `
@@ -279,11 +369,14 @@ class Mic extends AudioWorkletProcessor {
 registerProcessor(&#x27;mic&#x27;, Mic);`;
 
 async function start() {
+  timedOut = false; notice.classList.remove(&#x27;show&#x27;);
   ws = new WebSocket((location.protocol === &#x27;https:&#x27; ? &#x27;wss://&#x27; : &#x27;ws://&#x27;) + location.host + &#x27;/browser&#x27;);
   ws.binaryType = &#x27;arraybuffer&#x27;;
   ws.onmessage = (e) =&gt; {
     if (typeof e.data === &#x27;string&#x27;) {
-      if (JSON.parse(e.data).type === &#x27;interrupted&#x27;) stopPlayback(); // 割り込み：再生を止める
+      const m = JSON.parse(e.data);
+      if (m.type === &#x27;interrupted&#x27;) stopPlayback(); // 割り込み：再生を止める
+      if (m.type === &#x27;timeout&#x27;) timedOut = true;    // 5分の上限に達した
     } else play(e.data);
   };
   ws.onclose = () =&gt; stop();
@@ -295,7 +388,10 @@ async function start() {
   const node = new AudioWorkletNode(micCtx, &#x27;mic&#x27;);
   node.port.onmessage = (e) =&gt; ws.readyState === 1 &amp;&amp; ws.send(e.data);
   micCtx.createMediaStreamSource(stream).connect(node);
+  inAn = micCtx.createAnalyser(); inAn.fftSize = 64; micCtx.createMediaStreamSource(stream).connect(inAn);
+  outAn = playCtx.createAnalyser(); outAn.fftSize = 64;
   btn.textContent = &#x27;⏹ 終了&#x27;; status.textContent = &#x27;会話中…話しかけてください&#x27;;
+  document.body.classList.add(&#x27;on&#x27;); meter();
 }
 
 // 届いた音声（PCM16 24kHz）を順番に再生する
@@ -306,6 +402,7 @@ function play(buf) {
   ab.copyToChannel(f, 0);
   const src = playCtx.createBufferSource();
   src.buffer = ab; src.connect(playCtx.destination);
+  if (outAn) src.connect(outAn);
   nextTime = Math.max(nextTime, playCtx.currentTime);
   src.start(nextTime); nextTime += ab.duration;
   sources.push(src); src.onended = () =&gt; (sources = sources.filter((s) =&gt; s !== src));
@@ -317,6 +414,8 @@ function stop() {
   stream?.getTracks().forEach((t) =&gt; t.stop());
   micCtx?.close(); playCtx?.close(); if (ws?.readyState === 1) ws.close();
   ws = null; btn.textContent = &#x27;🎤 話す&#x27;; status.textContent = &#x27;終了しました&#x27;;
+  inAn = outAn = null; document.body.classList.remove(&#x27;on&#x27;);
+  if (timedOut) { notice.textContent = &#x27;5分たったので通話を終了しました。お試しありがとうございました！もう一度ボタンを押すと、また話せます。&#x27;; notice.classList.add(&#x27;show&#x27;); }
 }
 btn.onclick = () =&gt; (ws ? stop() : start().catch((e) =&gt; { status.textContent = &#x27;エラー: &#x27; + e.message; stop(); }));
 &lt;/script&gt;
@@ -327,7 +426,7 @@ btn.onclick = () =&gt; (ws ? stop() : start().catch((e) =&gt; { status.textConte
   &quot;name&quot;: &quot;ai-phone&quot;,
   &quot;main&quot;: &quot;src/index.js&quot;,
   &quot;compatibility_date&quot;: &quot;2026-10-01&quot;,
-  &quot;assets&quot;: { &quot;directory&quot;: &quot;./public&quot; },
+  &quot;assets&quot;: { &quot;directory&quot;: &quot;./public&quot;, &quot;binding&quot;: &quot;ASSETS&quot;, &quot;run_worker_first&quot;: true },
   &quot;workers_dev&quot;: true,
   &quot;vars&quot;: { &quot;GEMINI_MODEL&quot;: &quot;gemini-2.5-flash-native-audio-preview-12-2025&quot; }
 }

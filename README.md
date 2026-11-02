@@ -16,6 +16,8 @@ Twilioにかかってきた電話を、Gemini Live（音声AI）が架空のお�
 npm install
 npx wrangler login
 npx wrangler secret put GEMINI_API_KEY
+npx wrangler secret put BASIC_USER   # テストページのBasic認証ID
+npx wrangler secret put BASIC_PASS   # テストページのBasic認証パスワード
 npx wrangler deploy
 ```
 
@@ -26,10 +28,13 @@ Twilioコンソールの「電話番号 → Voice Configuration → A call comes
 
 あとはその電話番号に電話をかけるだけです。
 
+デプロイしたURLをブラウザで開くと、Basic認証（`BASIC_USER` / `BASIC_PASS`）のあとにマイクでAIと話せるテストページが表示されます。
+`/twiml` と `/twilio-media` はTwilioが接続するため認証の対象外です。ブラウザでの通話は料金対策として1回5分で自動終了します。
+
 ## ファイル構成
 - `src/index.js` … Worker本体（Twilio Media Streams ⇔ Gemini Live の中継）
 - `src/prompt.js` … AIへの指示（お店の設定）
-- `public/index.html` … トップページ
+- `public/index.html` … ブラウザ通話テストページ
 - `wrangler.jsonc` … Cloudflare Workers の設定
 - `package.json`
 

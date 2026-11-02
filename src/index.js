@@ -41,7 +41,12 @@ async function openGemini(env, h) {
   };
 }
 
+const SESSION_LIMIT_MS = 5 * 60 * 1000; // コスト対策：ブラウザ通話は1回5分まで
+
 function handleBrowser(env, ws) {
+  const timer = setTimeout(() => {
+    try { ws.send(JSON.stringify({ type: 'timeout' })); ws.close(1000, 'time limit'); } catch {}
+  }, SESSION_LIMIT_MS);
   const g = openGemini(env, {
     onAudio: (b64) => ws.send(b64ToBytes(b64)),
     onInterrupted: () => ws.send(JSON.stringify({ type: 'interrupted' })),
@@ -49,7 +54,7 @@ function handleBrowser(env, ws) {
   });
   g.catch(() => ws.close(1011, 'gemini'));
   ws.addEventListener('message', async (e) => { if (typeof e.data !== 'string') (await g).sendAudio(bytesToB64(new Uint8Array(e.data))); });
-  ws.addEventListener('close', async () => (await g).close());
+  ws.addEventListener('close', async () => { clearTimeout(timer); (await g).close(); });
 }
 
 function handleTwilio(env, ws) {
@@ -69,9 +74,21 @@ function handleTwilio(env, ws) {
   ws.addEventListener('close', async () => (await g).close());
 }
 
+// --- Basic認証（/twiml と /twilio-media はTwilioが叩くので対象外） ---
+const PUBLIC_PATHS = ['/twiml', '/twilio-media', '/twilio'];
+function authorized(req, env) {
+  if (!env.BASIC_USER || !env.BASIC_PASS) return true; // 未設定なら認証なし
+  const [scheme, b64] = (req.headers.get('Authorization') || '').split(' ');
+  if (scheme !== 'Basic' || !b64) return false;
+  try { return atob(b64) === `${env.BASIC_USER}:${env.BASIC_PASS}`; } catch { return false; }
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (!PUBLIC_PATHS.includes(url.pathname) && !authorized(req, env)) {
+      return new Response('認証が必要です', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="umibe", charset="UTF-8"', 'Content-Type': 'text/plain; charset=utf-8' } });
+    }
     if (url.pathname === '/twiml') {
       return new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<Response><Connect><Stream url="wss://${url.host}/twilio-media" /></Connect></Response>`, { headers: { 'Content-Type': 'text/xml' } });
     }
